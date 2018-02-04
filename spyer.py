@@ -90,7 +90,7 @@ def loop():
         if not detected and recording:
             now = datetime.datetime.now()
             if switchbuffer(now, lastchange):
-                camera.stop_preview()
+#                camera.stop_preview()
                 camera.stop_recording()
                 recording = 0
                 lastchange = now
@@ -98,7 +98,7 @@ def loop():
         elif detected and not recording:
             now = datetime.datetime.now()
             if switchbuffer(now, lastchange):
-                camera.start_preview()
+#                camera.start_preview()
                 camera.start_recording('./captures/home_%s.h264' % now.strftime('%Y%m%d_%H%M%S'))
                 recording = 1
                 lastchange = now
@@ -135,7 +135,7 @@ if __name__ == '__main__':     # Program start from here
         loop()
     except KeyboardInterrupt:  # When 'Ctrl+C' is pressed, the child program destroy() will be  executed.
         if recording == 1:
-            camera.stop_preview()
             camera.stop_recording()
+#            camera.stop_preview()
         destroy()
 
