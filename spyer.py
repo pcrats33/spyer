@@ -2,7 +2,7 @@
 
 #################################################################
 ###    spyer.py         Raspberry Pi Spycam                   ###
-###    2/3/2018         Author: Rick Tilley                   ###
+###    2/5/2018         Author: Rick Tilley                   ###
 #################################################################
 ###                                                           ###
 ###  This program connects to a raspberry pi camera and       ###
@@ -24,6 +24,7 @@ from Crypto.Cipher import AES
 import smtplib
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
+import shutil
 
 PIR_OUT_PIN = 11    # pin11
 SHUTTER_SPEED = 2
@@ -85,6 +86,8 @@ def loop():
     part = obj.decrypt(p2)
     recording = 0
     detected = 0
+    tmpvid = ""
+    print "Starting spy camera."
     # infite loop until Ctrl-C interrupt, this is our camera loop.
     while True:
         if not detected and recording:
@@ -92,6 +95,7 @@ def loop():
             if switchbuffer(now, lastchange):
 #                camera.stop_preview()
                 camera.stop_recording()
+                shutil.move('./tmp/%s' % tmpvid, './captures/%s' % tmpvid)
                 recording = 0
                 lastchange = now
                 # print 'Movement not detected turning off camera'
@@ -99,7 +103,8 @@ def loop():
             now = datetime.datetime.now()
             if switchbuffer(now, lastchange):
 #                camera.start_preview()
-                camera.start_recording('./captures/home_%s.h264' % now.strftime('%Y%m%d_%H%M%S'))
+                tmpvid = 'home_%s.h264' % now.strftime('%Y%m%d_%H%M%S')
+                camera.start_recording('./tmp/%s' % tmpvid)
                 recording = 1
                 lastchange = now
                 camf = './snaps/homeimage_%s.jpg' % now.strftime('%Y%m%d_%H%M%S')
@@ -122,7 +127,9 @@ def loop():
          # break videos into MOTION_SPEED Length segments
         if detected and recording:
             camera.stop_recording()
-            camera.start_recording('./captures/home_%s.h264' % now.strftime('%Y%m%d_%H%M%S'))
+            shutil.move('./tmp/%s' % tmpvid, './captures/%s' % tmpvid)
+            tmpvid = 'home_%s.h264' % now.strftime('%Y%m%d_%H%M%S')
+            camera.start_recording('./tmp/%s' % tmpvid)
 
 # end main loop
 
@@ -134,6 +141,7 @@ if __name__ == '__main__':     # Program start from here
     try:
         loop()
     except KeyboardInterrupt:  # When 'Ctrl+C' is pressed, the child program destroy() will be  executed.
+        print "Spy camera shutting down."
         if recording == 1:
             camera.stop_recording()
 #            camera.stop_preview()
