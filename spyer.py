@@ -37,8 +37,9 @@ recording = 0
 def setup():
     GPIO.setmode(GPIO.BOARD)       # Numbers GPIOs by physical location
     GPIO.setup(PIR_OUT_PIN, GPIO.IN)    # Set BtnPin's mode is input
-    camera.resolution = (1920, 1080)
-    camera.framerate = 30
+#    camera.resolution = (1920, 1080)
+    camera.resolution = (1280, 720)
+    camera.framerate = 60
 
 def switchbuffer(a, b):
     timediff = a - b
@@ -67,6 +68,12 @@ def sendsnap(fn, turn):
     msg.attach(img)
     send.sendmail(email_sender, email_receiver, msg.as_string())
 
+def camsleep(t, active):
+    if active:
+        camera.wait_recording(t)
+    else:
+        sleep(t)
+
 def loop():
     # initialize loop, load values from config file
     lastchange = datetime.datetime.now() - datetime.timedelta(seconds=SHUTTER_SPEED)
@@ -93,22 +100,22 @@ def loop():
         if not detected and recording:
             now = datetime.datetime.now()
             if switchbuffer(now, lastchange):
-#                camera.stop_preview()
+                #camera.stop_preview()
                 camera.stop_recording()
-                shutil.move('./tmp/%s' % tmpvid, './captures/%s' % tmpvid)
+#                shutil.move('./tmp/%s' % tmpvid, './captures/%s' % tmpvid)
                 recording = 0
                 lastchange = now
                 # print 'Movement not detected turning off camera'
         elif detected and not recording:
             now = datetime.datetime.now()
             if switchbuffer(now, lastchange):
-#                camera.start_preview()
+                #camera.start_preview()
                 tmpvid = 'home_%s.h264' % now.strftime('%Y%m%d_%H%M%S')
                 camera.start_recording('./tmp/%s' % tmpvid)
                 recording = 1
                 lastchange = now
                 camf = './snaps/homeimage_%s.jpg' % now.strftime('%Y%m%d_%H%M%S')
-                camera.capture(camf)
+                camera.capture(camf, use_video_port=True)
                 sendsnap(camf, part)
                 # print 'Movement detected! Camera activated.'
 
@@ -117,19 +124,20 @@ def loop():
         lapse = 0
         # wait at least MOTION_SPEED seconds before reacting again
         while lapse < MOTION_SPEED and (recording or not detected):
-            sleep(1)
+            camsleep(1, recording)
             delaynow = datetime.datetime.now()
             lapse = (delaynow - delaystart).total_seconds()
-            if lapse % 2 == 0:
-                camera.annotate_text = delaynow.strftime("%Y-%m-%d %H:%M:%S")
+#            if lapse % 6 == 0:
+#                camera.annotate_text = delaynow.strftime("%Y-%m-%d %H:%M:%S")
             if not detected:
                 detected = 0 if GPIO.input(PIR_OUT_PIN) == GPIO.LOW else 1
-         # break videos into MOTION_SPEED Length segments
+        # break videos into MOTION_SPEED Length segments
         if detected and recording:
-            camera.stop_recording()
-            shutil.move('./tmp/%s' % tmpvid, './captures/%s' % tmpvid)
-            tmpvid = 'home_%s.h264' % now.strftime('%Y%m%d_%H%M%S')
-            camera.start_recording('./tmp/%s' % tmpvid)
+            tmp = 'home_%s.h264' % now.strftime('%Y%m%d_%H%M%S')
+            camera.split_recording('./tmp/%s' % tmp)
+            camsleep(2, recording)
+#            shutil.move('./tmp/%s' % tmpvid, './captures/%s' % tmpvid)
+            tmpvid = tmp
 
 # end main loop
 
