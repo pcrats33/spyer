@@ -7,7 +7,7 @@
 ###                                                           ###
 ###  This program connects to a raspberry pi camera and       ###
 ###  motion sensor.  It will wait for motion and start        ###
-###  recording video along with taking snapshots.  Snapshots  ###
+###  spycam.recording video along with taking snapshots.  Snapshots  ###
 ###  are sent by email and stored in the ./snap folder.       ###
 ###  Video is stored in the ./captures folder.  A separate    ###
 ###  program may move the video captures to cloud storage.    ###
@@ -34,32 +34,87 @@ import threading
 import os
 import io
 
+#class Emailer:
+#    email_server
+#    email_sender
+#    email_receiver
+#    part
+#
+#    def __init__(self):
+
+
+class SpyCam:
+    'Camera functions and objects'
+    detected = 0
+    camera = None
+    recording = 0
+    __stream = None
+
+    def __init__(self):
+        self.detected = 0
+        self.recording = 0
+        self.camera = picamera.PiCamera()
+    #    camera.resolution = (1920, 1080)
+    #    camera.resolution = (1280, 720)
+    #    camera.framerate = 60
+        self.camera.resolution = (1296, 730)
+        self.camera.framerate = 10
+        self.stream = picamera.PiCameraCircularIO(self.camera, seconds=20)
+        self.camera.start_recording(self.stream, format='h264')
+    def __del__(self):
+        self.camera.stop_recording()
+
+    def recordBuffer(self, outfile):
+        rc = 0
+        for frame in self.stream.frames:
+            rc = rc + 1
+        uc = 0
+        bc = 0
+        for frame in self.stream.frames:
+            bc = bc + 1
+            if frame.frame_type == picamera.PiVideoFrameType.sps_header:
+                self.stream.seek(frame.position)
+                break
+        while True:
+            buf = self.stream.read1()
+            if not buf:
+                break
+            uc = uc + 1
+            outfile.write(buf)
+
+        # Wipe the circular stream once we're done
+        if __debug__:
+            log("Frames: %i    Header Frame: %i    Writen Frames: %i" % (rc, bc, uc))
+        self.stream.seek(0)
+        self.stream.truncate()
+        
+    def wait(self, sec):
+        self.camera.wait_recording(sec)
+        
+
+
+
 PIR_OUT_PIN = 11    # pin11
+spycam = SpyCam()
+LogFile = "spyerLog.txt"
 
-detected = 0
-camera = picamera.PiCamera()
-recording = 0
 
-def setup():
-
-#    camera.resolution = (1920, 1080)
-#    camera.resolution = (1280, 720)
-#    camera.framerate = 60
-    camera.resolution = (1296, 730)
-    camera.framerate = 10
-
+def log(message):
+    with open(LogFile, "a") as myfile:
+        myfile.write("%s\n" % message);
+    print "%s" % message
 
 def sendsnap():
-    global camera
+    global spycam
     global email_server
     global email_sender
     global email_receiver
     global part
     if __debug__:
-        print "Sending e-mail"
+        log("Sending e-mail")
     now = datetime.datetime.now()
     fn = './snaps/homeimage_%s.jpg' % now.strftime('%Y%m%d_%H%M%S')
-    camera.capture(fn, use_video_port=True)
+    spycam.camera.capture(fn, use_video_port=True)
     send = smtplib.SMTP_SSL(email_server)
     send.login(email_sender, part)
     msg = MIMEMultipart()
@@ -74,23 +129,21 @@ def sendsnap():
     send.sendmail(email_sender, email_receiver, msg.as_string())
 
 def motion_detected(PIR_PIN):
-    if __debug__:
-        print "Motion Detected!"
     global motiontime
-    global detected
+    global spycam
     motiontime = datetime.datetime.now()
-    if (not detected):
-        detected = 1
-#        delaystart = delaynow = datetime.datetime.now()
-        
+    if __debug__:
+        log("Motion Detected! %s" % motiontime)
+    if (not spycam.detected):
+        spycam.detected = 1
 
 
 def motion_detection():
     global motiontime
-    global detected
+    global spycam
     motiontime = datetime.datetime.now()
-    detected = 0
-    #GPIO.setmode(GPIO.BCM)
+    spycam.detected = 0
+    #GPIO.setmode(GPIO.BCM)   # Alternative numbering method
     GPIO.setmode(GPIO.BOARD)       # Numbers GPIOs by physical location
     GPIO.setup(PIR_OUT_PIN, GPIO.IN)    # Set BtnPin's mode is input
     GPIO.add_event_detect(PIR_OUT_PIN, GPIO.RISING, callback=motion_detected)
@@ -110,12 +163,11 @@ def loop():
     # initialize loop, load values from config file
     spin = open("spyer.config", "r")
     p1 = spin.readline().rstrip('\n')
-    global camera
+    global spycam
     global email_server
     global email_sender
     global email_receiver
     global part
-    global detected
     global motiontime
     global outfile
     email_server = spin.readline().rstrip('\n')
@@ -127,12 +179,10 @@ def loop():
     part.close()
     obj = AES.new(p1, AES.MODE_CFB, 'This is an IV456')
     part = obj.decrypt(p2)
-    recording = 0
-    detected = 0
     tmpvid = ""
-    print "Starting spy camera."
-    stream = picamera.PiCameraCircularIO(camera, seconds=20)
-    camera.start_recording(stream, format='h264')
+    log("Starting spy camera.")
+
+
     motion_detection()
 #    motion_thread = threading.Thread(target=motion_detection)
 #    motion_thread.start()
@@ -141,12 +191,10 @@ def loop():
     while True:
         if outOfSpace():
             raise ValueError('Drive out of space.  Closing program.') 
-        camera.wait_recording(4)
-        if __debug__:
-            print "looping detected value: %d" % detected
-        if detected and not recording:
-            if __debug__:
-                print "starting to buffer capture"
+        spycam.wait(4)
+#        if __debug__:
+#            log("looping spycam.detected value: %d") % spycam.detected
+        if spycam.detected and not spycam.recording:
             if not email_thread.is_alive():
                 try:
                     email_thread.start();
@@ -154,33 +202,24 @@ def loop():
                     email_thread = threading.Thread(target=sendsnap)
                     email_thread.start();
             starttime = datetime.datetime.now()
+            if __debug__:
+                log("starting to buffer capture : %s" % starttime)
             tmpvid = 'home_%s.h264' % starttime.strftime("%Y%m%d_%H%M%S")
             outfile = io.open('./tmp/%s' % tmpvid, 'wb')
-            recording = 1
+            spycam.recording = 1
  
-        if detected and recording:
-            camera.wait_recording(16)
-            for frame in stream.frames:
-                if frame.frame_type == picamera.PiVideoFrameType.sps_header:
-                    stream.seek(frame.position)
-                    break
-            while True:
-                buf = stream.read1()
-                if not buf:
-                    break
-                outfile.write(buf)
-            # Wipe the circular stream once we're done
-            stream.seek(0)
-            stream.truncate()
+        if spycam.detected and spycam.recording:
+            spycam.wait(16)
+            spycam.recordBuffer(outfile)
 #            stream.copy_to('./tmp/%s' % tmpvid)
             nowtime = datetime.datetime.now()
 #            nowstr = nowtime.strftime("%Y%m%d_%H%M%S")
-            if (nowtime - motiontime).total_seconds() > 30 or (nowtime - starttime).total_seconds() > 300:
-                detected = 0
-                recording = 0
+            if (nowtime - motiontime).total_seconds() > 15 or (nowtime - starttime).total_seconds() > 150:
+                spycam.detected = 0
+                spycam.recording = 0
                 outfile.close()
                 if __debug__:
-                    print "closing buffer capture, going idle."
+                    log("closing buffer capture, going idle. : %s" % nowtime)
                 if outOfSpace():
                     raise ValueError('Drive out of space.  Closing program.') 
             
@@ -189,31 +228,21 @@ def loop():
 # end main loop
 
 def destroy():
-    global camera
     global outfile
-    global recording
-    if recording:
-        for frame in stream.frames:
-            if frame.frame_type == picamera.PiVideoFrameType.sps_header:
-                stream.seek(frame.position)
-                break
-        while True:
-            buf = stream.read1()
-            if not buf:
-                break
-            outfile.write(buf)
+    global spycam
+    if spycam.recording:
+        spycam.recordBuffer(outfile)
         outfile.close()
-    camera.stop_recording()
+
     GPIO.cleanup()                     # Release resource
 
 if __name__ == '__main__':     # Program start from here
-    setup()
     try:
         loop()
     except ValueError as e:
         print ('ERROR THROWN: ' + repr(e))
     except KeyboardInterrupt:  # When 'Ctrl+C' is pressed, the child program destroy() will be  executed.
-        print "Spy camera shutting down."
+        log("Spy camera shutting down.")
 #            camera.stop_preview()
     finally:
         destroy()
