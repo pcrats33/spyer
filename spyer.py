@@ -188,10 +188,15 @@ def loop():
 #    motion_thread.start()
     email_thread = threading.Thread(target=sendsnap)
     # infite loop until Ctrl-C interrupt, this is our camera loop.
+    b = a = datetime.datetime.now()
     while True:
         if outOfSpace():
             raise ValueError('Drive out of space.  Closing program.') 
-        spycam.wait(4)
+        b = datetime.datetime.now()
+        while (b-a).total_seconds() < 4:
+            b = datetime.datetime.now()
+            spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
+            spycam.wait(1)
 #        if __debug__:
 #            log("looping spycam.detected value: %d") % spycam.detected
         if spycam.detected and not spycam.recording:
@@ -209,12 +214,17 @@ def loop():
             spycam.recording = 1
  
         if spycam.detected and spycam.recording:
-            spycam.wait(16)
+            b = datetime.datetime.now()
+            while (b-a).total_seconds() < 20:
+                b = datetime.datetime.now()
+                spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
+                spycam.wait(1)
+            a = datetime.datetime.now()
             spycam.recordBuffer(outfile)
 #            stream.copy_to('./tmp/%s' % tmpvid)
             nowtime = datetime.datetime.now()
 #            nowstr = nowtime.strftime("%Y%m%d_%H%M%S")
-            if (nowtime - motiontime).total_seconds() > 15 or (nowtime - starttime).total_seconds() > 150:
+            if (nowtime - motiontime).total_seconds() > 15 or (nowtime - starttime).total_seconds() > 90:
                 spycam.detected = 0
                 spycam.recording = 0
                 outfile.close()
