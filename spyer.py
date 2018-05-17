@@ -64,29 +64,35 @@ class SpyCam:
     def __del__(self):
         self.camera.stop_recording()
 
+    def clearStream(self):
+        self.stream.truncate()
+        self.stream.seek(0)
+
     def recordBuffer(self, outfile):
-        rc = 0
-        for frame in self.stream.frames:
-            rc = rc + 1
-        uc = 0
-        bc = 0
-        for frame in self.stream.frames:
-            bc = bc + 1
-            if frame.frame_type == picamera.PiVideoFrameType.sps_header:
-                self.stream.seek(frame.position)
-                break
-        while True:
-            buf = self.stream.read1()
-            if not buf:
-                break
-            uc = uc + 1
-            outfile.write(buf)
+        with self.stream.lock as lock:
+            rc = 0
+            for frame in self.stream.frames:
+                rc = rc + 1
+            uc = 0
+            bc = 0
+            for frame in self.stream.frames:
+                bc = bc + 1
+                if frame.frame_type == picamera.PiVideoFrameType.sps_header:
+                    self.stream.seek(frame.position)
+                    break
+            while True:
+                buf = self.stream.read1()
+                if not buf:
+                    break
+                uc = uc + 1
+                outfile.write(buf)
+
+            self.clearStream()
 
         # Wipe the circular stream once we're done
         if __debug__:
             log("Frames: %i    Header Frame: %i    Writen Frames: %i" % (rc, bc, uc))
-        self.stream.seek(0)
-        self.stream.truncate()
+
         
     def wait(self, sec):
         self.camera.wait_recording(sec)
@@ -131,17 +137,23 @@ def sendsnap():
 def motion_detected(PIR_PIN):
     global motiontime
     global spycam
-    motiontime = datetime.datetime.now()
+    global motioncount
+    if motioncount != 1:
+        motiontime = datetime.datetime.now()
+    motioncount += 1
     if __debug__:
         log("Motion Detected! %s" % motiontime)
-    if (not spycam.detected):
+        log("motion count %s" % motioncount)
+    if not spycam.detected and motioncount > 0:
         spycam.detected = 1
 
 
 def motion_detection():
     global motiontime
+    global motioncount
     global spycam
     motiontime = datetime.datetime.now()
+    motioncount = 0
     spycam.detected = 0
     #GPIO.setmode(GPIO.BCM)   # Alternative numbering method
     GPIO.setmode(GPIO.BOARD)       # Numbers GPIOs by physical location
@@ -169,6 +181,7 @@ def loop():
     global email_receiver
     global part
     global motiontime
+    global motioncount
     global outfile
     email_server = spin.readline().rstrip('\n')
     email_sender = spin.readline().rstrip('\n')
@@ -188,12 +201,13 @@ def loop():
 #    motion_thread.start()
     email_thread = threading.Thread(target=sendsnap)
     # infite loop until Ctrl-C interrupt, this is our camera loop.
-    b = a = datetime.datetime.now()
+    polla = pollb = b = a = datetime.datetime.now()
+    captures = 0
     while True:
         if outOfSpace():
             raise ValueError('Drive out of space.  Closing program.') 
-        b = datetime.datetime.now()
-        while (b-a).total_seconds() < 4:
+        b = c = datetime.datetime.now()
+        while (b-c).total_seconds() < 10 and spycam.detected == 0:
             b = datetime.datetime.now()
             spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
             spycam.wait(1)
@@ -206,7 +220,7 @@ def loop():
                 except RuntimeError:
                     email_thread = threading.Thread(target=sendsnap)
                     email_thread.start();
-            starttime = datetime.datetime.now()
+            starttime = motiontime
             if __debug__:
                 log("starting to buffer capture : %s" % starttime)
             tmpvid = 'home_%s.h264' % starttime.strftime("%Y%m%d_%H%M%S")
@@ -220,9 +234,11 @@ def loop():
                 spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
                 spycam.wait(1)
             a = datetime.datetime.now()
+            captures += 1
             spycam.recordBuffer(outfile)
 #            stream.copy_to('./tmp/%s' % tmpvid)
             nowtime = datetime.datetime.now()
+            motioncount = 0
 #            nowstr = nowtime.strftime("%Y%m%d_%H%M%S")
             if (nowtime - motiontime).total_seconds() > 15 or (nowtime - starttime).total_seconds() > 90:
                 spycam.detected = 0
@@ -232,8 +248,20 @@ def loop():
                     log("closing buffer capture, going idle. : %s" % nowtime)
                 if outOfSpace():
                     raise ValueError('Drive out of space.  Closing program.') 
-            
 
+        # keep trailing buffer short
+        if not spycam.detected:
+            spycam.clearStream()
+        pollb = datetime.datetime.now() 
+        # forget a motion trigger (for double motion detection)
+        if (pollb - motiontime).total_seconds > 20 and motioncount and not spycam.recording:
+            motioncount = 0
+        # don't allow for constant video taping in case of PIR malfunction 
+        if (pollb - polla).total_seconds > 3600:
+            polla = pollb
+            if captures > 50:
+                raise ValueError('Too much activity, there may be a sensor malfunction.')
+            captures = 0
 
 # end main loop
 
