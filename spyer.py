@@ -75,12 +75,22 @@ class SpyCam:
                 rc = rc + 1
             uc = 0
             bc = 0
+            header = None
             for frame in self.stream.frames:
                 bc = bc + 1
                 if frame.frame_type == picamera.PiVideoFrameType.sps_header:
-                    self.stream.seek(frame.position)
+                    header = frame.position
+                    self.stream.seek(header)
                     break
             while True:
+                buf = self.stream.read1()
+                if not buf:
+                    break
+                uc = uc + 1
+                outfile.write(buf)
+            # get other part of circlular stream
+            self.stream.seek(0)
+            while uc < rc:
                 buf = self.stream.read1()
                 if not buf:
                     break
@@ -100,7 +110,7 @@ class SpyCam:
 
 
 
-PIR_OUT_PIN = 11    # pin11
+
 spycam = SpyCam()
 LogFile = "spyerLog.txt"
 
@@ -152,13 +162,14 @@ def motion_detection():
     global motiontime
     global motioncount
     global spycam
+    PIR_OUT_PIN = 11    # pin11
     motiontime = datetime.datetime.now()
     motioncount = 0
     spycam.detected = 0
     #GPIO.setmode(GPIO.BCM)   # Alternative numbering method
     GPIO.setmode(GPIO.BOARD)       # Numbers GPIOs by physical location
-    GPIO.setup(PIR_OUT_PIN, GPIO.IN)    # Set BtnPin's mode is input
-    GPIO.add_event_detect(PIR_OUT_PIN, GPIO.RISING, callback=motion_detected)
+    GPIO.setup(PIR_OUT_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)    # Set BtnPin's mode is input
+    GPIO.add_event_detect(PIR_OUT_PIN, GPIO.FALLING, callback=motion_detected)
 
 def outOfSpace():
     df = os.popen("df -h /")
@@ -240,12 +251,12 @@ def loop():
             nowtime = datetime.datetime.now()
             motioncount = 0
 #            nowstr = nowtime.strftime("%Y%m%d_%H%M%S")
-            if (nowtime - motiontime).total_seconds() > 15 or (nowtime - starttime).total_seconds() > 90:
+            if (nowtime - motiontime).total_seconds() > 35 or (nowtime - starttime).total_seconds() > 90:
                 spycam.detected = 0
                 spycam.recording = 0
                 outfile.close()
                 if __debug__:
-                    log("closing buffer capture, going idle. : %s" % nowtime)
+                    log("closing buffer capture, going idle. : %s, last motion: %s" % (nowtime.strftime("%H:%M:%S"), motiontime.strftime("%H:%M:%S")))
                 if outOfSpace():
                     raise ValueError('Drive out of space.  Closing program.') 
 
