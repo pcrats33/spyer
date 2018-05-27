@@ -168,8 +168,8 @@ def motion_detection():
     spycam.detected = 0
     #GPIO.setmode(GPIO.BCM)   # Alternative numbering method
     GPIO.setmode(GPIO.BOARD)       # Numbers GPIOs by physical location
-    GPIO.setup(PIR_OUT_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)    # Set BtnPin's mode is input
-    GPIO.add_event_detect(PIR_OUT_PIN, GPIO.FALLING, callback=motion_detected)
+    GPIO.setup(PIR_OUT_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)    # Set BtnPin's mode is input
+    GPIO.add_event_detect(PIR_OUT_PIN, GPIO.RISING, callback=motion_detected)
 
 def outOfSpace():
     df = os.popen("df -h /")
@@ -220,7 +220,7 @@ def loop():
         b = c = datetime.datetime.now()
         while (b-c).total_seconds() < 10 and spycam.detected == 0:
             b = datetime.datetime.now()
-            spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
+#            spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
             spycam.wait(1)
 #        if __debug__:
 #            log("looping spycam.detected value: %d") % spycam.detected
@@ -232,6 +232,7 @@ def loop():
                     email_thread = threading.Thread(target=sendsnap)
                     email_thread.start();
             starttime = motiontime
+            spycam.camera.annotate_text = starttime.strftime("%Y%m%d_%H:%M:%S")
             if __debug__:
                 log("starting to buffer capture : %s" % starttime)
             tmpvid = 'home_%s.h264' % starttime.strftime("%Y%m%d_%H%M%S")
@@ -242,7 +243,7 @@ def loop():
             b = datetime.datetime.now()
             while (b-a).total_seconds() < 20:
                 b = datetime.datetime.now()
-                spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
+#                spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
                 spycam.wait(1)
             a = datetime.datetime.now()
             captures += 1
