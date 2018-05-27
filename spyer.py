@@ -34,13 +34,6 @@ import threading
 import os
 import io
 
-#class Emailer:
-#    email_server
-#    email_sender
-#    email_receiver
-#    part
-#
-#    def __init__(self):
 
 
 class SpyCam:
@@ -49,8 +42,10 @@ class SpyCam:
     camera = None
     recording = 0
     __stream = None
+    name = None
 
     def __init__(self):
+        self.name = "Spycam v0.4 by Rick Tilley"
         self.detected = 0
         self.recording = 0
         self.camera = picamera.PiCamera()
@@ -108,9 +103,6 @@ class SpyCam:
         self.camera.wait_recording(sec)
         
 
-
-
-
 spycam = SpyCam()
 LogFile = "spyerLog.txt"
 
@@ -120,56 +112,84 @@ def log(message):
         myfile.write("%s\n" % message);
     print "%s" % message
 
-def sendsnap():
-    global spycam
-    global email_server
-    global email_sender
-    global email_receiver
-    global part
-    if __debug__:
-        log("Sending e-mail")
-    now = datetime.datetime.now()
-    fn = './snaps/homeimage_%s.jpg' % now.strftime('%Y%m%d_%H%M%S')
-    spycam.camera.capture(fn, use_video_port=True)
-    send = smtplib.SMTP_SSL(email_server)
-    send.login(email_sender, part)
-    msg = MIMEMultipart()
-    msg['subject'] = 'Activity detected at home'
-    msg['From'] = email_sender 
-    msg['To'] = email_receiver
-    msg.preamble = 'Here is the latest %s' % fn
-    fp = open(fn, 'rb')
-    img = MIMEImage(fp.read())
-    fp.close()
-    msg.attach(img)
-    send.sendmail(email_sender, email_receiver, msg.as_string())
+class Emailer:
+    email_server = None
+    email_sender = None
+    email_receiver = None
+    part = None
+    spycam = None
+    email_thread = None
 
-def motion_detected(PIR_PIN):
-    global motiontime
-    global spycam
-    global motioncount
-    if motioncount != 1:
-        motiontime = datetime.datetime.now()
-    motioncount += 1
-    if __debug__:
-        log("Motion Detected! %s" % motiontime)
-        log("motion count %s" % motioncount)
-    if not spycam.detected and motioncount > 0:
-        spycam.detected = 1
+    def __init__(self, cam):
+        self.spycam = cam
+        spin = open("spyer.config", "r")
+        p1 = spin.readline().rstrip('\n')
+        self.email_server = spin.readline().rstrip('\n')
+        self.email_sender = spin.readline().rstrip('\n')
+        self.email_receiver = spin.readline().rstrip('\n')
+        spin.close()
+        self.part = open("spyer.hash", "r")
+        p2 = self.part.read()
+        self.part.close()
+        obj = AES.new(p1, AES.MODE_CFB, 'This is an IV456')
+        self.part = obj.decrypt(p2)
+        self.email_thread = threading.Thread(target=self.sendemail)
+
+    def sendsnap(self):
+        if not self.email_thread.is_alive():
+            try:
+                self.email_thread.start();
+            except RuntimeError:
+                self.email_thread = threading.Thread(target=self.sendemail)
+                self.email_thread.start();
+
+    def sendemail(self):
+        if __debug__:
+            log("Sending e-mail")
+        now = datetime.datetime.now()
+        fn = './snaps/homeimage_%s.jpg' % now.strftime('%Y%m%d_%H%M%S')
+        self.spycam.camera.capture(fn, use_video_port=True)
+        send = smtplib.SMTP_SSL(self.email_server)
+        send.login(self.email_sender, self.part)
+        msg = MIMEMultipart()
+        msg['subject'] = 'Activity detected at home'
+        msg['From'] = self.email_sender 
+        msg['To'] = self.email_receiver
+        msg.preamble = 'Here is the latest %s' % fn
+        fp = open(fn, 'rb')
+        img = MIMEImage(fp.read())
+        fp.close()
+        msg.attach(img)
+        send.sendmail(self.email_sender, self.email_receiver, msg.as_string())
 
 
-def motion_detection():
-    global motiontime
-    global motioncount
-    global spycam
-    PIR_OUT_PIN = 11    # pin11
-    motiontime = datetime.datetime.now()
+class MotionDetector:
+    motiontime = None
+    spycam = None
     motioncount = 0
-    spycam.detected = 0
-    #GPIO.setmode(GPIO.BCM)   # Alternative numbering method
-    GPIO.setmode(GPIO.BOARD)       # Numbers GPIOs by physical location
-    GPIO.setup(PIR_OUT_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)    # Set BtnPin's mode is input
-    GPIO.add_event_detect(PIR_OUT_PIN, GPIO.RISING, callback=motion_detected)
+
+    def __init__(self, cam):
+        self.spycam = cam
+        PIR_OUT_PIN = 11    # pin11
+        self.motiontime = datetime.datetime.now()
+        self.motioncount = 0
+        self.spycam.detected = 0
+        #GPIO.setmode(GPIO.BCM)   # Alternative numbering method
+        GPIO.setmode(GPIO.BOARD)       # Numbers GPIOs by physical location
+        GPIO.setup(PIR_OUT_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)    # Set BtnPin's mode is input
+        GPIO.add_event_detect(PIR_OUT_PIN, GPIO.RISING, callback=self.motion_detected)
+        log("Motion Detector started, has camera: %s" % self.spycam.name)
+
+    def motion_detected(self, PIR_PIN):
+        if self.motioncount != 1:
+            self.motiontime = datetime.datetime.now()
+        self.motioncount += 1
+        if __debug__:
+            log("Motion Detected! %s" % self.motiontime)
+            log("motion count %s" % self.motioncount)
+        if not self.spycam.detected and self.motioncount > 0:
+            self.spycam.detected = 1
+
 
 def outOfSpace():
     df = os.popen("df -h /")
@@ -184,33 +204,11 @@ def outOfSpace():
 
 def loop():
     # initialize loop, load values from config file
-    spin = open("spyer.config", "r")
-    p1 = spin.readline().rstrip('\n')
-    global spycam
-    global email_server
-    global email_sender
-    global email_receiver
-    global part
-    global motiontime
-    global motioncount
     global outfile
-    email_server = spin.readline().rstrip('\n')
-    email_sender = spin.readline().rstrip('\n')
-    email_receiver = spin.readline().rstrip('\n')
-    spin.close()
-    part = open("spyer.hash", "r")
-    p2 = part.read()
-    part.close()
-    obj = AES.new(p1, AES.MODE_CFB, 'This is an IV456')
-    part = obj.decrypt(p2)
     tmpvid = ""
-    log("Starting spy camera.")
-
-
-    motion_detection()
-#    motion_thread = threading.Thread(target=motion_detection)
-#    motion_thread.start()
-    email_thread = threading.Thread(target=sendsnap)
+    log("Starting spy camera. Camera init name: %s" % spycam.name)
+    motion = MotionDetector(spycam)
+    email = Emailer(spycam)
     # infite loop until Ctrl-C interrupt, this is our camera loop.
     polla = pollb = b = a = datetime.datetime.now()
     captures = 0
@@ -220,19 +218,13 @@ def loop():
         b = c = datetime.datetime.now()
         while (b-c).total_seconds() < 10 and spycam.detected == 0:
             b = datetime.datetime.now()
-#            spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
+#            spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
             spycam.wait(1)
-#        if __debug__:
-#            log("looping spycam.detected value: %d") % spycam.detected
+
         if spycam.detected and not spycam.recording:
-            if not email_thread.is_alive():
-                try:
-                    email_thread.start();
-                except RuntimeError:
-                    email_thread = threading.Thread(target=sendsnap)
-                    email_thread.start();
-            starttime = motiontime
-            spycam.camera.annotate_text = starttime.strftime("%Y%m%d_%H:%M:%S")
+            email.sendsnap()
+            starttime = motion.motiontime
+            spycam.camera.annotate_text = starttime.strftime("%Y%m%d %H:%M:%S")
             if __debug__:
                 log("starting to buffer capture : %s" % starttime)
             tmpvid = 'home_%s.h264' % starttime.strftime("%Y%m%d_%H%M%S")
@@ -243,21 +235,21 @@ def loop():
             b = datetime.datetime.now()
             while (b-a).total_seconds() < 20:
                 b = datetime.datetime.now()
-#                spycam.camera.annotate_text = b.strftime("%Y%m%d_%H:%M:%S")
+#                spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
                 spycam.wait(1)
             a = datetime.datetime.now()
             captures += 1
             spycam.recordBuffer(outfile)
 #            stream.copy_to('./tmp/%s' % tmpvid)
             nowtime = datetime.datetime.now()
-            motioncount = 0
-#            nowstr = nowtime.strftime("%Y%m%d_%H%M%S")
-            if (nowtime - motiontime).total_seconds() > 35 or (nowtime - starttime).total_seconds() > 90:
+            motion.motioncount = 0
+#            nowstr = nowtime.strftime("%Y%m%d %H%M%S")
+            if (nowtime - motion.motiontime).total_seconds() > 35 or (nowtime - starttime).total_seconds() > 90:
                 spycam.detected = 0
                 spycam.recording = 0
                 outfile.close()
                 if __debug__:
-                    log("closing buffer capture, going idle. : %s, last motion: %s" % (nowtime.strftime("%H:%M:%S"), motiontime.strftime("%H:%M:%S")))
+                    log("closing buffer capture, going idle. : %s, last motion: %s" % (nowtime.strftime("%H:%M:%S"), motion.motiontime.strftime("%H:%M:%S")))
                 if outOfSpace():
                     raise ValueError('Drive out of space.  Closing program.') 
 
@@ -266,8 +258,8 @@ def loop():
             spycam.clearStream()
         pollb = datetime.datetime.now() 
         # forget a motion trigger (for double motion detection)
-        if (pollb - motiontime).total_seconds > 20 and motioncount and not spycam.recording:
-            motioncount = 0
+        if (pollb - motion.motiontime).total_seconds > 20 and motion.motioncount and not spycam.recording:
+            motion.motioncount = 0
         # don't allow for constant video taping in case of PIR malfunction 
         if (pollb - polla).total_seconds > 3600:
             polla = pollb
