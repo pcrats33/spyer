@@ -165,6 +165,7 @@ class MotionDetector:
     motiontime = None
     spycam = None
     motioncount = 0
+    motionstopped = 0
 
     def __init__(self, cam):
         self.spycam = cam
@@ -176,9 +177,11 @@ class MotionDetector:
         GPIO.setmode(GPIO.BOARD)       # Numbers GPIOs by physical location
         GPIO.setup(PIR_OUT_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)    # Set BtnPin's mode is input
         GPIO.add_event_detect(PIR_OUT_PIN, GPIO.RISING, callback=self.motion_detected)
+#        GPIO.add_event_detect(PIR_OUT_PIN, GPIO.FALLING, callback=self.motion_stopped)
         log("Motion Detector started, has camera: %s" % self.spycam.name)
 
     def motion_detected(self, PIR_PIN):
+        self.motionstopped = 0
         if self.motioncount != 1:
             self.motiontime = datetime.datetime.now()
         self.motioncount += 1
@@ -188,6 +191,9 @@ class MotionDetector:
         if not self.spycam.detected and self.motioncount > 0:
             self.spycam.detected = 1
 
+    def motion_stopped(self, PIR_PIN):
+       self.motionstopped = 1
+       log("Motion Stopped")
 
 def outOfSpace():
     df = os.popen("df -h /")
@@ -216,12 +222,15 @@ def loop():
         b = c = datetime.datetime.now()
         while (b-c).total_seconds() < 10 and spycam.detected == 0:
             b = datetime.datetime.now()
-#            spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
+            if not GPIO.input(11):
+                motion.motionstopped = 1
+#            log("GPIO %d" % GPIO.input(11))
+            spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
             spycam.wait(2)
 
         if spycam.detected and not spycam.recording:
             email.sendsnap()
-            a = starttime = motion.motiontime
+            starttime = motion.motiontime
             spycam.camera.annotate_text = starttime.strftime("%Y%m%d %H:%M:%S")
             if __debug__:
                 log("starting to buffer capture : %s" % starttime)
@@ -232,8 +241,11 @@ def loop():
         if spycam.detected and spycam.recording:
             b = datetime.datetime.now()
             while (b-a).total_seconds() < 20:
+#                log("GPIO %d" % GPIO.input(11))
+                if not GPIO.input(11):
+                    motion.motionstopped = 1
                 b = datetime.datetime.now()
-#                spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
+                spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
                 spycam.wait(2)
             log("writing buffer 20 second from %s to %s" % (a.strftime("%H:%M:%S"), b.strftime("%H:%M:%S")))
             captures += 1
@@ -243,7 +255,7 @@ def loop():
             nowtime = datetime.datetime.now()
             motion.motioncount = 0
             nowstr = nowtime.strftime("%Y%m%d %H%M%S")
-            if (nowtime - motion.motiontime).total_seconds() > 35 or (nowtime - starttime).total_seconds() > 90:
+            if (motion.motionstopped and (nowtime - motion.motiontime).total_seconds() > 35) or (nowtime - starttime).total_seconds() > 120:
                 spycam.detected = 0
                 spycam.recording = 0
                 outfile.close()
@@ -255,6 +267,7 @@ def loop():
         # keep trailing buffer short
         if not spycam.detected:
             spycam.clearStream()
+            a = datetime.datetime.now()
         pollb = datetime.datetime.now() 
         # forget a motion trigger (for double motion detection)
         if (pollb - motion.motiontime).total_seconds > 20 and motion.motioncount and not spycam.recording:
