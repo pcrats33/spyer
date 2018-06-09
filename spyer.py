@@ -2,14 +2,14 @@
 
 #################################################################
 ###    spyer.py         Raspberry Pi Spycam                   ###
-###    4/29/2018        Author: Rick Tilley                   ###
+###    6/07/2018        Author: Rick Tilley                   ###
 #################################################################
 ###                                                           ###
 ###  This program connects to a raspberry pi camera and       ###
 ###  motion sensor.  It will wait for motion and start        ###
-###  spycam.recording video along with taking snapshots.  Snapshots  ###
-###  are sent by email and stored in the ./snap folder.       ###
-###  Video is stored in the ./captures folder.  A separate    ###
+###  spycam.recording video along with taking snapshots.      ###
+###      Sent by email and stored in the ./snap folder.       ###
+###  Video is stored in the ./tmp      folder.  A separate    ###
 ###  program may move the video captures to cloud storage.    ###
 ###  Program configuration is found in the spyer.config file. ###
 ###                                                           ###
@@ -17,6 +17,7 @@
 ###  finding better methods to monitor PIR and record video.  ###
 ###  There is still some cleanup of this code to be done...   ###
 ###                                                           ###
+###  cloud feature not implemented yet.  still under developm ###
 ###                                                           ###
 #################################################################
 
@@ -34,6 +35,7 @@ import threading
 import os
 import io
 
+SEEK_CUR = 1
 
 
 class SpyCam:
@@ -45,7 +47,7 @@ class SpyCam:
     name = None
 
     def __init__(self):
-        self.name = "Spycam v0.4 by Rick Tilley"
+        self.name = "Spycam v0.5 by Rick Tilley"
         self.detected = 0
         self.recording = 0
         self.camera = picamera.PiCamera()
@@ -60,6 +62,7 @@ class SpyCam:
         self.camera.stop_recording()
 
     def clearStream(self):
+#        self.stream.seek(0, SEEK_CUR)
         self.stream.truncate()
         self.stream.seek(0)
 
@@ -84,13 +87,6 @@ class SpyCam:
                 uc = uc + 1
                 outfile.write(buf)
             # get other part of circlular stream
-            self.stream.seek(0)
-            while uc < rc:
-                buf = self.stream.read1()
-                if not buf:
-                    break
-                uc = uc + 1
-                outfile.write(buf)
 
             self.clearStream()
 
@@ -218,12 +214,12 @@ def loop():
         b = c = datetime.datetime.now()
         while (b-c).total_seconds() < 10 and spycam.detected == 0:
             b = datetime.datetime.now()
-#            spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
-            spycam.wait(1)
+            spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
+            spycam.wait(2)
 
         if spycam.detected and not spycam.recording:
             email.sendsnap()
-            starttime = motion.motiontime
+            a = starttime = motion.motiontime
             spycam.camera.annotate_text = starttime.strftime("%Y%m%d %H:%M:%S")
             if __debug__:
                 log("starting to buffer capture : %s" % starttime)
@@ -235,11 +231,12 @@ def loop():
             b = datetime.datetime.now()
             while (b-a).total_seconds() < 20:
                 b = datetime.datetime.now()
-#                spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
-                spycam.wait(1)
-            a = datetime.datetime.now()
+                spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
+                spycam.wait(2)
+            log("writing buffer 20 second from %s to %s" % (a.strftime("%H:%M:%S"), b.strftime("%H:%M:%S")))
             captures += 1
             spycam.recordBuffer(outfile)
+            a = datetime.datetime.now()
 #            stream.copy_to('./tmp/%s' % tmpvid)
             nowtime = datetime.datetime.now()
             motion.motioncount = 0
@@ -272,11 +269,12 @@ def loop():
 def destroy():
     global outfile
     global spycam
+    GPIO.cleanup()                     # Release resource
     if spycam.recording:
         spycam.recordBuffer(outfile)
         outfile.close()
 
-    GPIO.cleanup()                     # Release resource
+
 
 if __name__ == '__main__':     # Program start from here
     try:
