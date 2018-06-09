@@ -55,7 +55,8 @@ class SpyCam:
     #    camera.resolution = (1280, 720)
     #    camera.framerate = 60
         self.camera.resolution = (1296, 730)
-        self.camera.framerate = 10
+        self.camera.framerate = 15
+#        self.stream = picamera.PiCameraCircularIO(self.camera, size=170000000, bitrate=17000000)
         self.stream = picamera.PiCameraCircularIO(self.camera, seconds=20)
         self.camera.start_recording(self.stream, format='h264')
     def __del__(self):
@@ -63,8 +64,8 @@ class SpyCam:
 
     def clearStream(self):
 #        self.stream.seek(0, SEEK_CUR)
-        self.stream.truncate()
         self.stream.seek(0)
+        self.stream.truncate()
 
     def recordBuffer(self, outfile):
         with self.stream.lock as lock:
@@ -74,6 +75,7 @@ class SpyCam:
             uc = 0
             bc = 0
             header = None
+            self.stream.seek(0)
             for frame in self.stream.frames:
                 bc = bc + 1
                 if frame.frame_type == picamera.PiVideoFrameType.sps_header:
@@ -214,7 +216,7 @@ def loop():
         b = c = datetime.datetime.now()
         while (b-c).total_seconds() < 10 and spycam.detected == 0:
             b = datetime.datetime.now()
-            spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
+#            spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
             spycam.wait(2)
 
         if spycam.detected and not spycam.recording:
@@ -240,7 +242,7 @@ def loop():
 #            stream.copy_to('./tmp/%s' % tmpvid)
             nowtime = datetime.datetime.now()
             motion.motioncount = 0
-#            nowstr = nowtime.strftime("%Y%m%d %H%M%S")
+            nowstr = nowtime.strftime("%Y%m%d %H%M%S")
             if (nowtime - motion.motiontime).total_seconds() > 35 or (nowtime - starttime).total_seconds() > 90:
                 spycam.detected = 0
                 spycam.recording = 0
