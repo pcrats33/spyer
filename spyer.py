@@ -233,7 +233,7 @@ def loop():
             b = datetime.datetime.now()
             while (b-a).total_seconds() < 20:
                 b = datetime.datetime.now()
-                spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
+#                spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
                 spycam.wait(2)
             log("writing buffer 20 second from %s to %s" % (a.strftime("%H:%M:%S"), b.strftime("%H:%M:%S")))
             captures += 1
