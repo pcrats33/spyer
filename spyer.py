@@ -2,7 +2,7 @@
 
 #################################################################
 ###    spyer.py         Raspberry Pi Spycam                   ###
-###    6/07/2018        Author: Rick Tilley                   ###
+###    11/01/2018       Author: Rick Tilley                   ###
 #################################################################
 ###                                                           ###
 ###  This program connects to a raspberry pi camera and       ###
@@ -34,6 +34,7 @@ import shutil
 import threading
 import os
 import io
+import re
 
 SEEK_CUR = 1
 
@@ -209,6 +210,9 @@ def outOfSpace():
 def loop():
     # initialize loop, load values from config file
     global outfile
+    global placeholder
+    stage1path = "./tmp/"
+    stage2path = "./captures/"
     tmpvid = ""
     log("Starting spy camera. Camera init name: %s" % spycam.name)
     motion = MotionDetector(spycam)
@@ -216,6 +220,10 @@ def loop():
     # infite loop until Ctrl-C interrupt, this is our camera loop.
     polla = pollb = b = a = datetime.datetime.now()
     captures = 0
+    for f in os.listdir(stage1path):
+        if re.search("\.loading", f):
+            os.remove(os.path.join(stage1path, f))
+
     while True:
         if outOfSpace():
             raise ValueError('Drive out of space.  Closing program.') 
@@ -235,7 +243,10 @@ def loop():
             if __debug__:
                 log("starting to buffer capture : %s" % starttime)
             tmpvid = 'home_%s.h264' % starttime.strftime("%Y%m%d_%H%M%S")
-            outfile = io.open('./tmp/%s' % tmpvid, 'wb')
+            outfile = io.open(stage1path +  tmpvid, 'wb')
+            placeholder = stage1path + tmpvid + ".loading"
+            loadingspot = io.open(placeholder, 'w')
+            loadingspot.close()
             spycam.recording = 1
  
         if spycam.detected and spycam.recording:
@@ -259,6 +270,7 @@ def loop():
                 spycam.detected = 0
                 spycam.recording = 0
                 outfile.close()
+                os.remove(placeholder)
                 if __debug__:
                     log("closing buffer capture, going idle. : %s, last motion: %s" % (nowtime.strftime("%H:%M:%S"), motion.motiontime.strftime("%H:%M:%S")))
                 if outOfSpace():
@@ -288,6 +300,7 @@ def destroy():
     if spycam.recording:
         spycam.recordBuffer(outfile)
         outfile.close()
+        os.remove(placeholder)
 
 
 
