@@ -206,14 +206,27 @@ def outOfSpace():
         return True
     return False
 
+def startRolling(starttime, stage1path):
+    global tmpvid
+    global outfile
+    global placeholder
+    if __debug__:
+        log("starting to buffer capture : %s" % starttime)
+    tmpvid = 'home_%s.h264' % starttime.strftime("%Y%m%d_%H%M%S")
+    outfile = io.open(stage1path +  tmpvid, 'wb')
+    placeholder = stage1path + tmpvid + ".loading"
+    loadingspot = io.open(placeholder, 'w')
+    loadingspot.close()
 
 def loop():
     # initialize loop, load values from config file
     global outfile
     global placeholder
+    global tmpvid
     stage1path = "./tmp/"
     stage2path = "./captures/"
     tmpvid = ""
+    outfile = None
     log("Starting spy camera. Camera init name: %s" % spycam.name)
     motion = MotionDetector(spycam)
     email = Emailer(spycam)
@@ -240,13 +253,9 @@ def loop():
             email.sendsnap()
             starttime = motion.motiontime
             spycam.camera.annotate_text = starttime.strftime("%Y%m%d %H:%M:%S")
-            if __debug__:
-                log("starting to buffer capture : %s" % starttime)
-            tmpvid = 'home_%s.h264' % starttime.strftime("%Y%m%d_%H%M%S")
-            outfile = io.open(stage1path +  tmpvid, 'wb')
-            placeholder = stage1path + tmpvid + ".loading"
-            loadingspot = io.open(placeholder, 'w')
-            loadingspot.close()
+            startRolling(starttime, stage1path)
+            print starttime.strftime("%Y%m%d %H:%M:%S")
+            print tmpvid
             spycam.recording = 1
  
         if spycam.detected and spycam.recording:
@@ -266,7 +275,7 @@ def loop():
             nowtime = datetime.datetime.now()
             motion.motioncount = 0
             nowstr = nowtime.strftime("%Y%m%d %H%M%S")
-            if (motion.motionstopped and (nowtime - motion.motiontime).total_seconds() > 35) or (nowtime - starttime).total_seconds() > 60:
+            if (motion.motionstopped and (nowtime - motion.motiontime).total_seconds() > 35):
                 spycam.detected = 0
                 spycam.recording = 0
                 outfile.close()
@@ -275,6 +284,11 @@ def loop():
                     log("closing buffer capture, going idle. : %s, last motion: %s" % (nowtime.strftime("%H:%M:%S"), motion.motiontime.strftime("%H:%M:%S")))
                 if outOfSpace():
                     raise ValueError('Drive out of space.  Closing program.') 
+            elif (nowtime - starttime).total_seconds() > 60:
+                outfile.close()
+                os.remove(placeholder)
+                starttime = datetime.datetime.now()
+                startRolling(starttime, stage1path)
 
         # keep trailing buffer short
         if not spycam.detected:
