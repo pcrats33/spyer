@@ -266,7 +266,7 @@ def loop():
             nowtime = datetime.datetime.now()
             motion.motioncount = 0
             nowstr = nowtime.strftime("%Y%m%d %H%M%S")
-            if (motion.motionstopped and (nowtime - motion.motiontime).total_seconds() > 35) or (nowtime - starttime).total_seconds() > 120:
+            if (motion.motionstopped and (nowtime - motion.motiontime).total_seconds() > 35) or (nowtime - starttime).total_seconds() > 60:
                 spycam.detected = 0
                 spycam.recording = 0
                 outfile.close()
