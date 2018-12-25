@@ -37,7 +37,7 @@ while True:
                 loading.append(f[:-len(".loading")])
         for f in dirz:
             if f not in loading:
-                command = "scp -i %s %s spyer@%s:%s" % (homepath + rsa, mypath + f, ip, "/home/spyer/Videos/")
+                command = "scp -i %s %s spyer@%s:%s" % (homepath + rsa, mypath + f, ip, "/home/spyer/captures/")
                 print "exec %s" % command
                 ret = os.system(command)
                 if ret == 0:
