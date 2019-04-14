@@ -223,6 +223,7 @@ def loop():
     global outfile
     global placeholder
     global tmpvid
+    snapQueued = 0
     stage1path = "./tmp/"
     stage2path = "./captures/"
     tmpvid = ""
@@ -250,7 +251,7 @@ def loop():
             spycam.wait(2)
 
         if spycam.detected and not spycam.recording:
-            email.sendsnap()
+            snapQueued = 1
             starttime = motion.motiontime
             spycam.camera.annotate_text = starttime.strftime("%Y%m%d %H:%M:%S")
             startRolling(starttime, stage1path)
@@ -266,6 +267,9 @@ def loop():
                     motion.motionstopped = 1
                 b = datetime.datetime.now()
                 spycam.camera.annotate_text = b.strftime("%Y%m%d %H:%M:%S")
+                if snapQueued != 0 and (b-a).total_seconds() > 4:
+                    email.sendsnap()
+                    snapQueued = 0
                 spycam.wait(2)
             log("writing buffer 20 second from %s to %s" % (a.strftime("%H:%M:%S"), b.strftime("%H:%M:%S")))
             captures += 1
