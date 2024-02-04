@@ -238,6 +238,7 @@ def loop():
         if re.search("\.loading", f):
             os.remove(os.path.join(stage1path, f))
 
+    # @TODO: maybe an exit strategy?
     while True:
         if outOfSpace():
             raise ValueError('Drive out of space.  Closing program.') 
@@ -261,6 +262,7 @@ def loop():
  
         if spycam.detected and spycam.recording:
             b = datetime.datetime.now()
+            # @TODO: make this not blocking?
             while (b-a).total_seconds() < 20:
 #                log("GPIO %d" % GPIO.input(11))
                 if not GPIO.input(11):
@@ -274,11 +276,10 @@ def loop():
             log("writing buffer 20 second from %s to %s" % (a.strftime("%H:%M:%S"), b.strftime("%H:%M:%S")))
             captures += 1
             spycam.recordBuffer(outfile)
-            a = datetime.datetime.now()
+            a = nowtime = datetime.datetime.now()
 #            stream.copy_to('./tmp/%s' % tmpvid)
-            nowtime = datetime.datetime.now()
             motion.motioncount = 0
-            nowstr = nowtime.strftime("%Y%m%d %H%M%S")
+#            nowstr = nowtime.strftime("%Y%m%d %H%M%S")
             if (motion.motionstopped and (nowtime - motion.motiontime).total_seconds() > 35):
                 spycam.detected = 0
                 spycam.recording = 0
@@ -294,11 +295,11 @@ def loop():
                 starttime = datetime.datetime.now()
                 startRolling(starttime, stage1path)
 
+        pollb = datetime.datetime.now() 
         # keep trailing buffer short
         if not spycam.detected:
             spycam.clearStream()
-            a = datetime.datetime.now()
-        pollb = datetime.datetime.now() 
+            a = pollb
         # forget a motion trigger (for double motion detection)
         if (pollb - motion.motiontime).total_seconds > 20 and motion.motioncount and not spycam.recording:
             motion.motioncount = 0
@@ -306,7 +307,9 @@ def loop():
         if (pollb - polla).total_seconds > 3600:
             polla = pollb
             if captures > 50:
-                raise ValueError('Too much activity, there may be a sensor malfunction.')
+                # raise ValueError('Too much activity, there may be a sensor malfunction.')
+                # just sleep for a half hour.
+                sleep(1800)
             captures = 0
 
 # end main loop
@@ -314,12 +317,11 @@ def loop():
 def destroy():
     global outfile
     global spycam
-    GPIO.cleanup()                     # Release resource
     if spycam.recording:
         spycam.recordBuffer(outfile)
         outfile.close()
         os.remove(placeholder)
-
+    GPIO.cleanup()                     # Release resource
 
 
 if __name__ == '__main__':     # Program start from here
