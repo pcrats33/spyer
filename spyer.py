@@ -118,6 +118,7 @@ class Emailer:
     part = None
     spycam = None
     email_thread = None
+    email_log_thread = None
 
     def __init__(self, cam):
         self.spycam = cam
@@ -133,6 +134,7 @@ class Emailer:
         obj = AES.new(p1, AES.MODE_CFB, 'This is an IV456')
         self.part = obj.decrypt(p2)
         self.email_thread = threading.Thread(target=self.sendemail)
+        self.email_log_thread = threading.Thread(target=self.sendLogEmail)
 
     def sendsnap(self):
         if not self.email_thread.is_alive():
@@ -161,6 +163,25 @@ class Emailer:
         msg.attach(img)
         send.sendmail(self.email_sender, self.email_receiver, msg.as_string())
 
+    def sendlog(self, subject, message):
+        if not self.email_log_thread.is_alive():
+            try:
+                self.email_log_thread.start();
+            except RuntimeError:
+                self.email_log_thread = threading.Thread(target=self.sendLogEmail, args=(subject, message))
+                self.email_log_thread.start();
+
+    def sendLogEmail(self, subject, message):
+        if __debug__:
+            log("Sending log e-mail")
+        send = smtplib.SMTP_SSL(self.email_server)
+        send.login(self.email_sender, self.part)
+        msg = MIMEMultipart()
+        msg['subject'] = subject
+        msg['From'] = self.email_sender 
+        msg['To'] = self.email_receiver
+        msg.preamble = message
+        send.sendmail(self.email_sender, self.email_receiver, msg.as_string())        
 
 class MotionDetector:
     motiontime = None
@@ -226,6 +247,7 @@ def loop():
     snapQueued = 0
     stage1path = "./tmp/"
     stage2path = "./captures/"
+    activityOverload = 0
     tmpvid = ""
     outfile = None
     log("Starting spy camera. Camera init name: %s" % spycam.name)
@@ -241,6 +263,8 @@ def loop():
     # @TODO: maybe an exit strategy?
     while True:
         if outOfSpace():
+            email.sendlog("Spyer out of space", "Not enough storage space.")
+            sleep(120)
             raise ValueError('Drive out of space.  Closing program.') 
         b = c = datetime.datetime.now()
         while (b-c).total_seconds() < 10 and spycam.detected == 0:
@@ -288,6 +312,8 @@ def loop():
                 if __debug__:
                     log("closing buffer capture, going idle. : %s, last motion: %s" % (nowtime.strftime("%H:%M:%S"), motion.motiontime.strftime("%H:%M:%S")))
                 if outOfSpace():
+                    email.sendlog("Spyer drive space low", "Well, looks like we've ran out of storage.  Shutting down.")
+                    sleep(120)
                     raise ValueError('Drive out of space.  Closing program.') 
             elif (nowtime - starttime).total_seconds() > 60:
                 outfile.close()
@@ -307,8 +333,12 @@ def loop():
         if (pollb - polla).total_seconds > 3600:
             polla = pollb
             if captures > 50:
-                # raise ValueError('Too much activity, there may be a sensor malfunction.')
                 # just sleep for a half hour.
+                email.sendlog("Spyer has Unending Motion", "Motion sensor detected motion for an entire hour.  Sleeping 30 minutes.  Possible defective motion detector.")
+                sleep(120)
+                activityOverload += 1
+                if activityOverload > 8:                    
+                    raise ValueError('Too much activity, there must be a sensor malfunction.')
                 sleep(1800)
             captures = 0
 
